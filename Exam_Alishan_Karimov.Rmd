@@ -1,0 +1,369 @@
+---
+title: "Alishan_Karimov_Exam_FT98LI"
+output: html_notebook
+---
+
+### Inserting the data and checking the measurement levels
+
+```{r}
+library(haven)
+dataA <- na.omit(read_sav("C:/Users/alish/Downloads/A_EN.sav"))
+#head(dataA)
+#View(dataA)
+
+#see the measurements 
+library(foreign)
+measurement_levels <- na.omit(read.spss("C:/Users/alish/Downloads/A_EN.sav"))
+#View(measurement_levels)
+
+colnames(dataA) <- c("CRT", "AGE", "INC", "CCR", "EDU", "CRL")
+#View(dataA)
+
+
+```
+
+#Finding Outliers 
+```{r, warning=FALSE, message=FALSE}
+
+hist(dataA$AGE)
+
+#boxplot method
+library(ggplot2)
+ggplot(dataA) +
+  aes(x = "", y = AGE) +
+  geom_boxplot(fill = "#0c4c8a") +
+  theme_minimal() 
+
+#the outliers are:
+boxplot.stats(dataA$AGE)$out
+#row number of outliers
+out <- boxplot.stats(dataA$AGE)$out
+out_ind <- which(dataA$AGE %in% c(out))
+out_ind
+#print all variables for these outliers
+dataA[out_ind, ]
+#print the values of the outliers directly on the boxplot
+boxplot(dataA$AGE,
+  ylab = "AGE",
+  main = " "
+)
+mtext(paste("Outliers: ", paste(out, collapse = ", ")))
+
+#percentile method (1%-99% interval, but the interval is flexible depending on the data)
+lower_bound <- quantile(dataA$AGE, 0.01)
+lower_bound
+
+upper_bound <- quantile(dataA$AGE, 0.99)
+upper_bound 
+
+
+outlier_ind <- which(dataA$AGE < lower_bound | dataA$AGE > upper_bound)
+outlier_ind 
+#their values (AGE)
+#View(dataA[outlier_ind, "AGE"])
+#all values
+#View(dataA[outlier_ind, ])
+
+#Hampel filter method 
+#considering the values outside the interval "I" (which is formed by the median plus or minus 3 median absolute deviations (MAD)) as outliers. 
+
+#setting the interval limits
+lower_bound <- median(dataA$AGE) - 3 * mad(dataA$AGE, constant = 1)
+lower_bound
+
+upper_bound <- median(dataA$AGE) + 3 * mad(dataA$AGE, constant = 1)
+upper_bound
+
+#the row numbers of the observations outside of the interval
+outlier_ind <- which(dataA$AGE < lower_bound | dataA$AGE > upper_bound)
+outlier_ind
+
+#statistical tests
+#Grub's test
+library(outliers)
+Grub.test <- grubbs.test(dataA$AGE)
+Grub.test
+Grub.test <- grubbs.test(dataA$AGE, opposite = TRUE)
+Grub.test
+#Rosner's test
+library(EnvStats)
+Rosner.test <- rosnerTest(dataA$AGE, k = 50)
+Rosner.test$all.stats
+outliers <- Rosner.test$all.stats$Outlier %>%
+  table()
+outliers
+#PS.when the sample is small (n<=25), then it is more useful to use Dixon's test. 
+#There is no outlier in the dataA$AGE
+
+#https://statsandr.com/blog/outliers-detection-in-r/#minimum-and-maximum
+```
+
+
+
+#AGE1 has been created based on its median and added as a nominal variable to the data to make it possible to use it in Cramer's v test, RF and MCA. 
+```{r}
+dataA <- within(dataA, {   
+  AGE1 <- NA 
+  AGE1[AGE < 33] <- 1
+  AGE1[AGE >= 33] <- 2
+   } )
+#View(dataA)
+
+#crosstabulation (chisquare test)
+crosstabmod1 <- xtabs(~CRT+AGE1, data = dataA)
+crosstabmod1
+round(100*prop.table(crosstabmod1, 2), 2)
+ch2CRTvsAGE1 <- chisq.test(crosstabmod1)
+ch2CRTvsAGE1
+
+crosstabmod2 <- xtabs(~CRT+CCR, data = dataA)
+crosstabmod2
+round(100*prop.table(crosstabmod2, 2), 2)
+ch2CRTvsCCR <- chisq.test(crosstabmod2)
+ch2CRTvsCCR 
+```
+##Summary table
+```{r}
+summary(dataA)
+```
+
+#Logistic regression
+
+```{r}
+# libraries
+library(tidyverse)
+library(caret)
+theme_set(theme_bw())
+
+# selecting variables
+
+data <- select(dataA, 1, 3, 4, 5, 6, 7)
+data$CRT <- as.factor(data$CRT)
+data$AGE1 <- as.factor(data$AGE1)
+data$EDU <- as.factor(data$EDU)
+data$INC <- as.factor(data$INC)
+data$CCR <- as.factor(data$CCR)
+data$CRL <- as.factor(data$CRL)
+#view(data)
+
+# Split the data into training and test set
+set.seed(123)
+training.samples <- data$CRT %>% 
+  createDataPartition(p = 0.8, list = FALSE)
+train.data  <- data[training.samples, ] #80% of the data as training data
+test.data <- data[-training.samples, ]  #remaining 20% of the data as test data
+
+# Fit the model
+model <- glm( CRT ~., data = train.data, family = binomial)
+# Summarize the model
+summary(model)$coef
+# Make predictions
+probabilities <- model %>% 
+  predict(test.data, type = "response")
+predicted.classes <- ifelse(probabilities > 0.5, "pos", "neg")
+# Model accuracy
+mean(predicted.classes == test.data$CRT)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+###Checking associations between the dependent variable and independent variables
+```{r, warning=FALSE}
+#checking normal distribution
+library(stats)
+shapiro.test(dataA$CRT) 
+shapiro.test(dataA$INC) 
+shapiro.test(dataA$CCR)  
+shapiro.test(dataA$AGE) 
+shapiro.test(dataA$EDU) 
+shapiro.test(dataA$CRL) 
+shapiro.test(dataA$AGE1) 
+
+#all are non-normally distributed (p<0.05) ANOVA cant be done at all. 
+#Cramer's v should be used to find out if variables are significantly correlated with (CRT).
+library(RVAideMemoire)
+
+cramer.test(dataA$CRT, dataA$AGE1, nrep = 1000, conf.level = 0.95)
+cramer.test(dataA$CRT, dataA$INC, nrep = 1000, conf.level = 0.95)
+cramer.test(dataA$CRT, dataA$CCR, nrep = 1000, conf.level = 0.95)
+cramer.test(dataA$CRT, dataA$CRL, nrep = 1000, conf.level = 0.95)
+cramer.test(dataA$CRT, dataA$EDU, nrep = 1000, conf.level = 0.95)
+```
+
+Above results makes us sure that our data is not coming from normal distribution as the null hypothesis of Shapiro-Wilk test which assumes normality  has been rejected. Therefore we can definitely treat all variables as categorical. 
+
+Results of Cramer's V values show us that the variable (EDU) is absolutely insignificant and should be excluded from any analysis. Moreover, all other p values are smaller than 0.05, hence they are significantly associated to the dependent variable (CRT). 
+
+The biggest association of Credit rating is with the income (~0.52), followed by credit cards (~0.40) and car loans (~0.33)
+
+Also the Cramer's v for the inserted variable (AGE1) is quite good (~0.31), so we can use (AGE1) in our analyses as a categorical variable.  
+
+When it comes to the assumptions of Cramer's V, it only postulates all variables being categorical and all our variables are now categorical. However, as it only ranges between 0 and 1, we don't know if independent variables affect negatively or positively to the dependent variable.
+
+###Dropping insignificant variable (EDU) and continuous variable (AGE) as we can use (AGE1). 
+```{r}
+library(dplyr)
+data <- dataA %>% 
+  select(1, 3, 4, 6, 7) 
+#View(data)
+```
+
+###Random Forest
+```{r, warning=FALSE, message=FALSE}
+
+library(ggplot2)
+library(cowplot)
+library(caTools)
+library(randomForest)
+RFdata <- data[,c("CRT", "INC", "AGE1", "CCR", "CRL")]
+#View(RFdata)
+
+RFdata$INC <- as.factor(RFdata$INC)
+
+RFdata$AGE1 <- ifelse(test=RFdata$AGE1 == 1, yes = "Young", no = "Adult")
+RFdata$AGE1 <- as.factor(RFdata$AGE1)
+
+RFdata$CCR <- ifelse(test=RFdata$CCR == 1, yes = "<5cards", no = ">5cards")
+RFdata$CCR <- as.factor(RFdata$CCR)
+
+RFdata$CRL <- ifelse(test=RFdata$CRL == 1, yes = "<=1carloan", no = ">2carloan")
+RFdata$CRL <- as.factor(RFdata$CRL)
+
+RFdata$CRT <- ifelse(test=RFdata$CRT == 0, yes = "Bad_rating", no = "Good_rating")
+RFdata$CRT <- as.factor(RFdata$CRT)
+
+str(RFdata)
+
+#finding the best (smallest) oob value
+set.seed(45)
+#data.imputed <- rfImpute(CRT ~ ., data = data, iter=6)
+oob.values <- vector(length = 10)
+for(i in 1:10) {
+  temp.model <- randomForest(CRT~.,data = RFdata, mtry=i)
+  oob.values[i] <- temp.model$err.rate[nrow(temp.model$err.rate), 1]}
+oob.values
+#smallest obb.value was 2 , mtry should be 2.
+RFmodel <- randomForest(CRT ~ ., data = RFdata, mtry = 2, localImp = TRUE, proximity=TRUE)
+RFmodel
+#checking if the number of trees (500, default) is enough 
+oob.error.data <- data.frame(Trees = rep(1:nrow(RFmodel$err.rate), times = 3), Type = rep(c("OOB", "Good_rating", "Bad_rating"), each=nrow(RFmodel$err.rate)), Error = c(RFmodel$err.rate[,"OOB"], RFmodel$err.rate[,"Good_rating"], RFmodel$err.rate[,"Bad_rating"]))
+
+ggplot(data=oob.error.data, aes(x=Trees, y=Error))+geom_line(aes(color=Type))
+
+#rank variables for their importance + Variable importance plots
+Imp.RF <- importance(RFmodel)
+Imp.RF
+
+varImpPlot(RFmodel)
+
+library(randomForestExplainer)
+plot_multi_way_importance(measure_importance(RFmodel), x_measure = "accuracy_decrease",
+  y_measure = "gini_decrease", main = "Multi-way importance plot")
+
+
+#Cross validation
+library(rfUtilities)
+rf.crossValidation(RFmodel, RFdata, ydata = NULL, p = 0.2, n = 99,
+  seed = NULL, normalize = FALSE, bootstrap = FALSE, trace = FALSE)
+
+```
+
+
+According to above results we can see that ~81.29% of the OOB samples were correctly classified by our RF. 
+Also if we look at the confusion matrix, we see that:
+-there were 719 customers that were correctly labeled as having a "Bad_rating", 
+-there were 160 customers that were incorrectly classified as having a "Bad_rating",
+-there were 301 customers that were incorrectly classified as having a "Good_rating", 
+-there were 1284 customers that were correctly labeled as having a having a "Good_rating". 
+#####
+
+if we check the ggplot of error rates, we can see that the rates become stable after ~200 trees, since the default number of trees is 500, we don't need to increase the number of trees as it will not decrease the error rates. 
+
+###
+Next, we want to rank variables according to their importance to our RF model. 
+
+In this regard, firstly when we check the "Mean decrease accuracy" plot, which represents how much removing each variable reduces the accuracy of our model, we can see that the most important variable is (INC) followed by (CCR) and (AGE1). The least important variable on the other hand is (CRL). 
+Secondly, if we look at the "Mean Decrease Gini" plot, which illustrates measure of how each variable contributes to the homogeneity of the nodes and leaves in the resulting random forest. The ranking is the same here.  Multi-way importance plots also shows the same results. 
+###
+Lastly, in order to cross-validate our results, we can check the results of the fucntion "rf.crossValidation". Based on results of Kappa statistic, we can see that there is no difference between observed agreement and agreement expected by random chance. 
+Furthermore, users.accuracy describes the error of commission (inclusion), observations being mistakenly included in a given class. 
+producers.accuracy corresponds to error of omission (exclusion), observations being mistakenly excluded from a given class. 
+Our results are cross-validated. 
+
+
+
+### Multiple Correspondance analysis
+
+```{r, warning=FALSE, message=FALSE}
+
+MCAdata <- RFdata
+
+#frequency of variable categories
+for (i in 1:5) {
+  plot(MCAdata[,i], main=colnames(MCAdata)[i],
+       ylab = "Count", col="steelblue", las = 2)}
+
+#library(Factoshiny)
+#Factoshiny(MCAdata)
+
+library(FactoMineR)
+str(MCAdata)
+res.MCA<-MCA(MCAdata, ncp = 2, graph=FALSE)
+res.MCA$var
+###eigenvalues
+library(factoextra)
+eig.val <- get_eigenvalue(res.MCA)
+eig.val
+###checking the screeplot
+fviz_screeplot(res.MCA, addlabels = TRUE, ylim = c(0, 45))
+##Our data contains 2464 rows and 5 columns. 
+Average_axis_variation = 1/(5-1)
+Average_axis_variation
+#Biplot
+fviz_mca_biplot(res.MCA, 
+               repel = TRUE, 
+               ggtheme = theme_minimal())
+#contributions to the prin. components
+var <- get_mca_var(res.MCA)
+var$contrib
+
+#quality on the factor map based on cos2 values, barchart
+
+fviz_cos2(res.MCA, choice = "var", axes = 1:2)
+
+
+```
+
+According to the results of the MCA, when we look at the eigenvalues of all four dimensions, we can see that Dimension 1 explains the most inertia in the solution (because the first dimension account for a large share of the total inertia, we can say that a good dimension reduction is accomplished), followed by dimension 2 and so on. Also, we can see that, if we choose 2 dimensions, it would retain slightly over 58% of the information from the data, while this rate would increase up to 74.65% on the occasion of 3 dimensions. 
+However, we can see that "Average_axis_variation" equals to 25%, which means any axis with a contribution larger than 25% should be considered as important. 
+Hence, we can choose the first 2 dimensions (dim. 1 and dim. 2) which will successfully explain enough information from the data. 
+### biplot
+Based on the biplot, where column points with similar profile are placed closely, we can see the relationships between the column variables according to the distances among column points. We can also see the quality of representation of variable categories according to the barchart. 
+What stands out from the plot is that the two different groups of the column points are placed on the reverse sides of the plot, which is good because it means customers' given characteristics determine their credit rating. Or more precisely: 
+
+- Younger customers with low income, more than 2 car loans and more than 5 credit cards tend to have a bad credit rating. 
+- More adult customers with higher income, less than 5 credit cards and maximum 1 car loan are prone to have a good credit rating. 
+
+Hence, credit rating being a dependent variable, we can state that:
+
+- Age of customers affect positively to the dependent variable
+- Income of customers affect positively to the dependent variable
+- Number of credit cards affect negatively on the dependent variable
+- Number of car loans affect negatively on the dependent variable
+
