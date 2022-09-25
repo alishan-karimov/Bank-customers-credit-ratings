@@ -1,6 +1,6 @@
-# ML_Projects
+# Bank customers' credit ratings
 
-In this repository for every porject, in addition to the associated data that is presented separately, there are 2 types of the same file: 
+This repository include files that deal with the project of analysing bank customers' credit ratings based on their features. There are 4 files in the repository:
 - .rmd file (to see the code, simply click on the file);
 - .pdf file (to easily read the results of the projects, to see the the pdf file, click on the file and click download button if you wish to save it). 
 
